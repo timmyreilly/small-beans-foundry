@@ -1,6 +1,5 @@
 .tmp
 
-# Contoso Community Plan
 data/
 mlruns/
 contoso_community_plan/contoso_community_plan/scripts/ground_truth_citation_stats.py
@@ -152,10 +151,8 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-
-get_assessments/scripts
-
-
+# Node modules
+agentic-ui-v0/frontend/node_modules
 
 # Frontend ignore
 # dependencies

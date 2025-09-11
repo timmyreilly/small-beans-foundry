@@ -1,0 +1,26 @@
+{
+  "name": "agentic-ui-v0-frontend",
+  "version": "0.1.0",
+  "description": "Simplified Vue.js frontend for agentic UI v0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.3.8",
+    "pinia": "^2.1.7",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vitejs/plugin-vue": "^4.5.0",
+    "typescript": "^5.3.0",
+    "vue-tsc": "^1.8.22",
+    "vite": "^5.0.0"
+  },
+  "keywords": ["vue", "typescript", "chat", "autogen"],
+  "author": "",
+  "license": "ISC"
+}
