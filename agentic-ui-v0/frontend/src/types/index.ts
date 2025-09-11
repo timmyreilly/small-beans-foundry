@@ -8,6 +8,8 @@ export interface Message {
 export interface Session {
   id: string
   messages: Message[]
+  title?: string
+  createdAt?: Date
 }
 
 export interface ChatRequest {

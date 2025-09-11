@@ -2,6 +2,7 @@
 """
 Functional smoke test for Agentic UI v0
 Tests that the single AutoGen agent can handle basic conversations
+and conversation history functionality
 """
 
 import asyncio
@@ -9,7 +10,7 @@ import aiohttp
 import json
 import sys
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Test configuration
 BASE_URL = "http://localhost:8000"
@@ -37,9 +38,9 @@ async def health_check() -> bool:
         print(f"❌ Health check failed: {e}")
         return False
 
-async def test_chat_endpoint(session_id: str = None) -> Dict[str, Any]:
-    """Test the chat endpoint with a simple message"""
-    test_message = "Hello! Can you tell me what you are?"
+async def test_chat_endpoint(session_id: Optional[str] = None, message: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Test the chat endpoint with a message"""
+    test_message = message or "Hello! Can you tell me what you are?"
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -48,7 +49,7 @@ async def test_chat_endpoint(session_id: str = None) -> Dict[str, Any]:
                 "session_id": session_id
             }
             
-            print(f"🔄 Sending test message: '{test_message}'")
+            print(f"🔄 Sending message: '{test_message[:50]}{'...' if len(test_message) > 50 else ''}'")
             start_time = time.time()
             
             async with session.post(
@@ -78,34 +79,6 @@ async def test_chat_endpoint(session_id: str = None) -> Dict[str, Any]:
         print(f"❌ Chat test failed: {e}")
         return None
 
-async def test_conversation_flow() -> bool:
-    """Test a multi-turn conversation"""
-    print("\n🔄 Testing conversation flow...")
-    
-    # First message
-    response1 = await test_chat_endpoint()
-    if not response1:
-        return False
-    
-    session_id = response1.get('session_id')
-    if not session_id:
-        print("❌ No session ID received")
-        return False
-    
-    # Second message in same session
-    print(f"\n🔄 Sending follow-up message in session {session_id[:8]}...")
-    response2 = await test_chat_endpoint(session_id)
-    if not response2:
-        return False
-    
-    # Verify same session
-    if response2.get('session_id') != session_id:
-        print("❌ Session ID mismatch in conversation")
-        return False
-    
-    print("✅ Conversation flow test passed")
-    return True
-
 async def test_session_history(session_id: str) -> bool:
     """Test retrieving session history"""
     try:
@@ -119,6 +92,20 @@ async def test_session_history(session_id: str) -> bool:
                     data = await response.json()
                     messages = data.get('messages', [])
                     print(f"✅ Session history retrieved: {len(messages)} messages")
+                    
+                    # Validate message structure
+                    for i, msg in enumerate(messages):
+                        required_fields = ['id', 'content', 'role', 'timestamp']
+                        missing_fields = [field for field in required_fields if field not in msg]
+                        if missing_fields:
+                            print(f"❌ Message {i} missing fields: {missing_fields}")
+                            return False
+                        
+                        if msg['role'] not in ['user', 'assistant']:
+                            print(f"❌ Message {i} has invalid role: {msg['role']}")
+                            return False
+                    
+                    print(f"📊 Message breakdown: {len([m for m in messages if m['role'] == 'user'])} user, {len([m for m in messages if m['role'] == 'assistant'])} assistant")
                     return True
                 else:
                     print(f"❌ Session history test failed: HTTP {response.status}")
@@ -127,6 +114,90 @@ async def test_session_history(session_id: str) -> bool:
     except Exception as e:
         print(f"❌ Session history test failed: {e}")
         return False
+
+async def test_conversation_flow() -> bool:
+    """Test a multi-turn conversation with history retrieval"""
+    print("\n🔄 Testing comprehensive conversation flow...")
+    
+    # First message
+    response1 = await test_chat_endpoint(message="What is 2+2?")
+    if not response1:
+        return False
+    
+    session_id = response1.get('session_id')
+    if not session_id:
+        print("❌ No session ID received")
+        return False
+    
+    # Second message in same session
+    print(f"\n🔄 Sending follow-up message in session {session_id[:8]}...")
+    response2 = await test_chat_endpoint(session_id, "What about 3+3?")
+    if not response2:
+        return False
+    
+    # Verify same session
+    if response2.get('session_id') != session_id:
+        print("❌ Session ID mismatch in conversation")
+        return False
+    
+    # Third message to establish context
+    print(f"\n🔄 Sending context-dependent message...")
+    response3 = await test_chat_endpoint(session_id, "Can you summarize our math conversation?")
+    if not response3:
+        return False
+    
+    # Test session history after multi-turn conversation
+    print(f"\n🔄 Retrieving complete session history...")
+    if not await test_session_history(session_id):
+        return False
+    
+    print("✅ Comprehensive conversation flow test passed")
+    return True
+
+async def test_multiple_sessions() -> bool:
+    """Test that multiple sessions work independently"""
+    print("\n🔄 Testing multiple independent sessions...")
+    
+    # Create first session
+    response1 = await test_chat_endpoint(message="My favorite color is blue")
+    if not response1:
+        return False
+    session1_id = response1.get('session_id')
+    if not session1_id:
+        print("❌ No session ID received for first session")
+        return False
+    
+    # Create second session
+    response2 = await test_chat_endpoint(message="My favorite color is red")
+    if not response2:
+        return False
+    session2_id = response2.get('session_id')
+    if not session2_id:
+        print("❌ No session ID received for second session")
+        return False
+    
+    # Verify different sessions
+    if session1_id == session2_id:
+        print("❌ Expected different session IDs")
+        return False
+    
+    # Test that sessions maintain separate contexts
+    response3 = await test_chat_endpoint(session1_id, "What color did I mention?")
+    if not response3:
+        return False
+    
+    response4 = await test_chat_endpoint(session2_id, "What color did I mention?")
+    if not response4:
+        return False
+    
+    # Check both session histories
+    if not await test_session_history(session1_id):
+        return False
+    if not await test_session_history(session2_id):
+        return False
+    
+    print("✅ Multiple sessions test passed")
+    return True
 
 async def run_smoke_tests() -> bool:
     """Run all smoke tests"""
@@ -144,15 +215,23 @@ async def run_smoke_tests() -> bool:
         return False
     
     session_id = chat_response.get('session_id')
+    if not session_id:
+        print("❌ No session ID received")
+        return False
     
     # 3. Session history test
-    print("\n3️⃣ Testing session history...")
+    print("\n3️⃣ Testing session history retrieval...")
     if not await test_session_history(session_id):
         return False
     
-    # 4. Conversation flow test
-    print("\n4️⃣ Testing conversation flow...")
+    # 4. Comprehensive conversation flow test
+    print("\n4️⃣ Testing conversation flow with context...")
     if not await test_conversation_flow():
+        return False
+    
+    # 5. Multiple sessions test
+    print("\n5️⃣ Testing multiple independent sessions...")
+    if not await test_multiple_sessions():
         return False
     
     return True
@@ -161,6 +240,8 @@ def main():
     """Main test runner"""
     print("🚀 Agentic UI v0 Functional Smoke Test")
     print("=" * 50)
+    print("Testing chat functionality and conversation history features")
+    print()
     
     try:
         # Run async tests
@@ -169,7 +250,13 @@ def main():
         print("\n" + "=" * 50)
         if success:
             print("🎉 All smoke tests passed!")
-            print("✅ Agentic UI v0 is working correctly")
+            print("✅ Agentic UI v0 chat and conversation history working correctly")
+            print("🔍 Verified features:")
+            print("   • Basic chat functionality")
+            print("   • Session management")
+            print("   • Conversation history retrieval")
+            print("   • Multi-turn conversations")
+            print("   • Multiple independent sessions")
             sys.exit(0)
         else:
             print("❌ Some smoke tests failed")

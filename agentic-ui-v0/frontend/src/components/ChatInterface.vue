@@ -154,11 +154,9 @@ watch(() => chatStore.currentSession?.messages, scrollToBottom, { deep: true })
 
 <style scoped>
 .chat-interface {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  max-width: 800px;
-  margin: 0 auto;
   background: #f8fafc;
 }
 
@@ -334,17 +332,21 @@ watch(() => chatStore.currentSession?.messages, scrollToBottom, { deep: true })
 }
 
 @media (max-width: 768px) {
-  .chat-interface {
-    margin: 0;
-  }
-  
   .chat-container {
-    margin: 0;
-    border-radius: 0;
+    margin: 0.5rem;
+    border-radius: 0.5rem;
   }
   
   .message {
     max-width: 90%;
+  }
+  
+  .chat-header {
+    padding: 0.75rem 1rem;
+  }
+  
+  .chat-header h1 {
+    font-size: 1.25rem;
   }
 }
 </style>
