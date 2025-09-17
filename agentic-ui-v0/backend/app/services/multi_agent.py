@@ -195,7 +195,6 @@ class MultiAgent(RoutedAgent):
                 content = content[:-1]
         
         # Handle escaped characters
-        import json
         try:
             if content.startswith('"') and content.endswith('"'):
                 content = json.loads(content)
