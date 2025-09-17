@@ -17,7 +17,6 @@ except ImportError as e:
     multi_agent_service = None
     MULTI_AGENT_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
 
 # Initialize telemetry tracer and meter
 try:
