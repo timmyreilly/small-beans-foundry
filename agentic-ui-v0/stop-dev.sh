@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Stop all development servers for agentic-ui-v1
+# Stop all development servers for agentic-ui-v0
 
-echo "Stopping Agentic UI v1 Development Environment..."
+echo "Stopping Agentic UI v0 Development Environment..."
 
 # Kill all related processes
 echo "Terminating application processes..."
