@@ -167,7 +167,7 @@ async def _process_chat_internal(request: ChatRequest, start_time: datetime):
         return ChatResponse(
             response=ai_response,
             session_id=session.id,
-            message_id=ai_message.id  # This is guaranteed to be set by Message.__init__
+            message_id=ai_message.id  # ai_message.id is expected to be set, but may be None depending on Message.__init__ implementation
         )
         
     except HTTPException:
