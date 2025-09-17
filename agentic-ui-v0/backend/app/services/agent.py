@@ -10,8 +10,41 @@ from azure.core.credentials import AzureKeyCredential
 from app.models.models import Message
 from app.config.azure import azure_config
 from datetime import datetime, timezone, timedelta
+from app.config.telemetry import telemetry_config
 
 logger = logging.getLogger(__name__)
+
+# Initialize telemetry tracer and meter
+try:
+    tracer = telemetry_config.get_tracer(__name__)
+    meter = telemetry_config.get_meter(__name__)
+    
+    # Create metrics
+    conversation_counter = meter.create_counter(
+        name="agent_conversations_total",
+        description="Total number of agent conversations",
+        unit="1"
+    )
+    
+    response_time_histogram = meter.create_histogram(
+        name="agent_response_time_seconds",
+        description="Time taken to generate agent responses",
+        unit="s"
+    )
+    
+    message_length_histogram = meter.create_histogram(
+        name="agent_message_length_chars",
+        description="Length of messages processed by agent",
+        unit="chars"
+    )
+    
+    logger.info("Telemetry instrumentation loaded for agent service")
+except Exception as e:
+    logger.warning(f"Telemetry not available for agent service: {e}")
+    tracer = None
+    conversation_counter = None
+    response_time_histogram = None
+    message_length_histogram = None
 
 class SingleAgentService:
     def __init__(self):
@@ -101,6 +134,56 @@ class SingleAgentService:
 
     async def generate_response(self, messages: List[Message], user_message: str) -> str:
         """Generate a response using the single AutoGen agent"""
+        start_time = datetime.now()
+        
+        # Start telemetry span
+        if tracer:
+            with tracer.start_span("agent_generate_response") as span:
+                span.set_attribute("user_message_length", len(user_message))
+                span.set_attribute("conversation_context_length", len(messages))
+                return await self._generate_response_with_telemetry(messages, user_message, span, start_time)
+        else:
+            return await self._generate_response_internal(messages, user_message, start_time)
+    
+    async def _generate_response_with_telemetry(self, messages: List[Message], user_message: str, span, start_time: datetime) -> str:
+        """Internal method with telemetry tracking"""
+        try:
+            result = await self._generate_response_internal(messages, user_message, start_time)
+            
+            # Record success metrics
+            if conversation_counter:
+                conversation_counter.add(1, {"status": "success", "agent_type": "autogen_assistant"})
+            
+            if response_time_histogram:
+                response_time = (datetime.now() - start_time).total_seconds()
+                response_time_histogram.record(response_time, {"status": "success"})
+            
+            if message_length_histogram:
+                message_length_histogram.record(len(result), {"message_type": "response"})
+                message_length_histogram.record(len(user_message), {"message_type": "request"})
+            
+            span.set_attribute("response_length", len(result))
+            span.set_attribute("response_time_seconds", (datetime.now() - start_time).total_seconds())
+            span.set_attribute("status", "success")
+            
+            return result
+            
+        except Exception as e:
+            # Record error metrics
+            if conversation_counter:
+                conversation_counter.add(1, {"status": "error", "agent_type": "autogen_assistant"})
+            
+            if response_time_histogram:
+                response_time = (datetime.now() - start_time).total_seconds()
+                response_time_histogram.record(response_time, {"status": "error"})
+            
+            span.record_exception(e)
+            span.set_attribute("status", "error")
+            span.set_attribute("error_type", type(e).__name__)
+            raise
+    
+    async def _generate_response_internal(self, messages: List[Message], user_message: str, start_time: datetime) -> str:
+        """Internal response generation logic"""
         try:
             logger.debug("Starting single agent response generation")
             await self._initialize_agent()

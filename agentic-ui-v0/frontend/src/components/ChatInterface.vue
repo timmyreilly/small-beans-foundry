@@ -3,6 +3,29 @@
     <div class="chat-header">
       <h1>Agentic UI v0</h1>
       <p>Simple AutoGen Chat Assistant</p>
+      
+      <!-- Agent Mode Toggle -->
+      <div class="agent-mode-selector">
+        <label>Agent Mode:</label>
+        <select 
+          v-model="chatStore.agentMode" 
+          @change="onAgentModeChange"
+          :disabled="chatStore.isLoading"
+          class="mode-select"
+        >
+          <option 
+            v-for="mode in chatStore.availableAgentModes" 
+            :key="mode.id"
+            :value="mode.id"
+            :disabled="!mode.available"
+          >
+            {{ mode.name }} {{ !mode.available ? '(Unavailable)' : '' }}
+          </option>
+        </select>
+        <div class="mode-description">
+          {{ getCurrentModeDescription() }}
+        </div>
+      </div>
     </div>
 
     <div class="chat-container">
@@ -72,9 +95,17 @@ const chatStore = useChatStore()
 const newMessage = ref('')
 const messagesContainer = ref<HTMLElement>()
 
-onMounted(() => {
+onMounted(async () => {
   if (!chatStore.currentSession) {
     chatStore.createSession()
+  }
+  
+  // Load available agent modes from backend
+  try {
+    const response = await axios.get('/api/agent-modes')
+    chatStore.updateAvailableAgentModes(response.data.modes)
+  } catch (error) {
+    console.error('Failed to load agent modes:', error)
   }
 })
 
@@ -89,7 +120,10 @@ const sendMessage = async () => {
   try {
     chatStore.isLoading = true
     
-    const response = await axios.post('/api/chat', {
+    // Choose endpoint based on agent mode
+    const endpoint = chatStore.agentMode === 'multi' ? '/api/chat/multi-agent' : '/api/chat'
+    
+    const response = await axios.post(endpoint, {
       message: messageText,
       session_id: chatStore.currentSession?.id
     })
@@ -109,6 +143,16 @@ const sendMessage = async () => {
   } finally {
     chatStore.isLoading = false
   }
+}
+
+const onAgentModeChange = () => {
+  // The store will handle clearing the session when mode changes
+  console.log(`Switched to ${chatStore.agentMode} agent mode`)
+}
+
+const getCurrentModeDescription = () => {
+  const currentMode = chatStore.availableAgentModes.find(m => m.id === chatStore.agentMode)
+  return currentMode?.description || 'AI Assistant'
 }
 
 const clearChat = () => {
@@ -179,6 +223,53 @@ watch(() => chatStore.currentSession?.messages, scrollToBottom, { deep: true })
   margin: 0.25rem 0 0 0;
   color: #64748b;
   font-size: 0.9rem;
+}
+
+.agent-mode-selector {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.agent-mode-selector label {
+  display: block;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.mode-select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  font-size: 0.9rem;
+  color: #374151;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.mode-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.mode-select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.mode-description {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.3;
 }
 
 .chat-container {

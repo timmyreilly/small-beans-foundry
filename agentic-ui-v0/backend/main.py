@@ -7,11 +7,19 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Lifespan context manager for cleanup
+# Lifespan context manager for cleanup and telemetry initialization
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Agentic UI v0 Backend with Single AutoGen Agent...")
+    
+    # Initialize telemetry
+    try:
+        from app.config.telemetry import telemetry_config
+        telemetry_config.initialize(app)
+        logger.info("Telemetry initialization completed")
+    except Exception as e:
+        logger.error(f"Telemetry initialization failed: {e}", exc_info=True)
     
     yield
     # Shutdown
@@ -89,7 +97,23 @@ async def health_check():
             "details": "Azure AI Foundry configuration"
         }
         
-        # 3. Single Agent Service Check
+        # 3. Telemetry Check
+        try:
+            from app.config.telemetry import telemetry_config
+            telemetry_enabled = telemetry_config.is_telemetry_enabled()
+            health_result["components"]["telemetry"] = {
+                "status": "pass" if telemetry_enabled else "warn",
+                "enabled": telemetry_enabled,
+                "details": "Azure Application Insights telemetry"
+            }
+        except Exception as e:
+            health_result["components"]["telemetry"] = {
+                "status": "warn",
+                "enabled": False,
+                "details": f"Telemetry unavailable: {str(e)}"
+            }
+        
+        # 4. Single Agent Service Check
         health_result["components"]["agent_service"] = {
             "status": "pass",
             "chat_endpoint": "/api/chat",
