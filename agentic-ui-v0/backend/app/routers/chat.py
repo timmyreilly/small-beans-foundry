@@ -2,15 +2,110 @@ from fastapi import APIRouter, HTTPException
 from app.models.models import ChatRequest, ChatResponse
 from app.services.session import session_service
 from app.services.agent import agent_service
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Initialize telemetry tracer and meter
+try:
+    from app.config.telemetry import telemetry_config
+    tracer = telemetry_config.get_tracer(__name__)
+    meter = telemetry_config.get_meter(__name__)
+    
+    # Create metrics
+    chat_requests_counter = meter.create_counter(
+        name="chat_requests_total",
+        description="Total number of chat requests",
+        unit="1"
+    )
+    
+    chat_response_time_histogram = meter.create_histogram(
+        name="chat_response_time_seconds",
+        description="Time taken to process chat requests",
+        unit="s"
+    )
+    
+    session_operations_counter = meter.create_counter(
+        name="session_operations_total",
+        description="Total number of session operations",
+        unit="1"
+    )
+    
+    logger.info("Telemetry instrumentation loaded for chat router")
+except Exception as e:
+    logger.warning(f"Telemetry not available for chat router: {e}")
+    tracer = None
+    chat_requests_counter = None
+    chat_response_time_histogram = None
+    session_operations_counter = None
 
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Simple chat endpoint using single AutoGen agent"""
+    start_time = datetime.now()
+    
+    # Start telemetry span
+    if tracer:
+        with tracer.start_span("chat_request") as span:
+            span.set_attribute("session_id", request.session_id or "new")
+            span.set_attribute("message_length", len(request.message))
+            return await _process_chat_with_telemetry(request, span, start_time)
+    else:
+        return await _process_chat_internal(request, start_time)
+
+async def _process_chat_with_telemetry(request: ChatRequest, span, start_time: datetime):
+    """Process chat with telemetry tracking"""
+    try:
+        result = await _process_chat_internal(request, start_time)
+        
+        # Record success metrics
+        if chat_requests_counter:
+            chat_requests_counter.add(1, {"status": "success"})
+        
+        if chat_response_time_histogram:
+            response_time = (datetime.now() - start_time).total_seconds()
+            chat_response_time_histogram.record(response_time, {"status": "success"})
+        
+        span.set_attribute("response_length", len(result.response))
+        span.set_attribute("response_time_seconds", (datetime.now() - start_time).total_seconds())
+        span.set_attribute("final_session_id", result.session_id)
+        span.set_attribute("status", "success")
+        
+        return result
+        
+    except HTTPException as e:
+        # Record HTTP error metrics
+        if chat_requests_counter:
+            chat_requests_counter.add(1, {"status": "http_error", "status_code": str(e.status_code)})
+        
+        if chat_response_time_histogram:
+            response_time = (datetime.now() - start_time).total_seconds()
+            chat_response_time_histogram.record(response_time, {"status": "http_error"})
+        
+        span.set_attribute("status", "http_error")
+        span.set_attribute("status_code", e.status_code)
+        span.set_attribute("error_detail", str(e.detail))
+        raise
+        
+    except Exception as e:
+        # Record system error metrics
+        if chat_requests_counter:
+            chat_requests_counter.add(1, {"status": "system_error"})
+        
+        if chat_response_time_histogram:
+            response_time = (datetime.now() - start_time).total_seconds()
+            chat_response_time_histogram.record(response_time, {"status": "system_error"})
+        
+        span.record_exception(e)
+        span.set_attribute("status", "system_error")
+        span.set_attribute("error_type", type(e).__name__)
+        raise
+
+async def _process_chat_internal(request: ChatRequest, start_time: datetime):
+    """Internal chat processing logic"""
     try:
         # Get or create session
         try:
@@ -18,6 +113,10 @@ async def chat(request: ChatRequest):
                 request.session_id, 
                 request.user_details
             )
+            
+            if session_operations_counter:
+                session_operations_counter.add(1, {"operation": "get_or_create_session"})
+                
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Session error: {str(e)}")
         
@@ -27,6 +126,9 @@ async def chat(request: ChatRequest):
             request.message, 
             "user"
         )
+        
+        if session_operations_counter:
+            session_operations_counter.add(1, {"operation": "add_user_message"})
         
         # Get conversation history for context
         conversation_context = session_service.get_conversation_context(session.id, limit=10)
@@ -48,10 +150,13 @@ async def chat(request: ChatRequest):
             "assistant"
         )
         
+        if session_operations_counter:
+            session_operations_counter.add(1, {"operation": "add_ai_message"})
+        
         return ChatResponse(
             response=ai_response,
             session_id=session.id,
-            message_id=ai_message.id
+            message_id=ai_message.id  # This is guaranteed to be set by Message.__init__
         )
         
     except HTTPException:
